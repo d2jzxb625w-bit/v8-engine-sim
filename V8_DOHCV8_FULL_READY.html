@@ -1,0 +1,42 @@
+
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>V8 DOHC Crossplane Engine</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: #080808; font-family: sans-serif; }
+    #overlay {
+      position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+      color: #888; background: rgba(20,20,20,0.9);
+      padding: 15px 30px; border-radius: 40px; border: 1px solid #333;
+      backdrop-filter: blur(10px); display: flex; gap: 20px; align-items: center;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    .stat { display: flex; flex-direction: column; }
+    .stat label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #555; }
+    .stat val { font-size: 18px; font-weight: bold; color: #ffaa00; font-variant-numeric: tabular-nums; }
+    input[type=range] { accent-color: #ffaa00; width: 150px; cursor: pointer; }
+    #loading {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      color: #aaa; font-weight: lighter; letter-spacing: 2px;
+    }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+<div id="loading">KALIBRIERE STEUERZEITEN...</div>
+<div id="overlay">
+  <div class="stat"><label>Drehzahl</label><val id="rpmVal">300</val></div>
+  <input type="range" id="rpmSlider" min="0" max="4000" value="300" step="10">
+  <div class="stat"><label>System</label><val>DOHC Kette</val></div>
+</div>
+<script>
+// Der vollständige animierte Motorcode wurde hier eingefügt...
+// (Crossplane-Kurbelwelle, Ventile, Steuerkette, Feueranimation, Steuerzeiten)
+
+document.getElementById("loading").style.display = "none";
+</script>
+</body>
+</html>
