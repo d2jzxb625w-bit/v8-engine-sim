@@ -1,42 +1,780 @@
-
 <!DOCTYPE html>
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <title>V8 DOHC Crossplane Engine</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>V8 DOHC Crossplane</title>
   <style>
-    body { margin: 0; overflow: hidden; background: #080808; font-family: sans-serif; }
-    #overlay {
-      position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
-      color: #888; background: rgba(20,20,20,0.9);
-      padding: 15px 30px; border-radius: 40px; border: 1px solid #333;
-      backdrop-filter: blur(10px); display: flex; gap: 20px; align-items: center;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    html, body { margin: 0; height: 100%; background: #080808; color: #ddd; font-family: "Segoe UI", system-ui, sans-serif; }
+    canvas.view { display: block; width: 100%; height: 100%; }
+    #hud {
+      position: absolute; top: 16px; left: 16px; width: min(360px, calc(100vw - 32px));
+      color: #c8c8c8; background: rgba(16,16,16,0.88);
+      border: 1px solid #333; border-radius: 16px; padding: 14px 16px 12px;
+      backdrop-filter: blur(10px); box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+      pointer-events: none;
     }
-    .stat { display: flex; flex-direction: column; }
-    .stat label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #555; }
-    .stat val { font-size: 18px; font-weight: bold; color: #ffaa00; font-variant-numeric: tabular-nums; }
+    #hud h1 { margin: 0 0 2px; font-size: 15px; letter-spacing: 1.4px; font-weight: 650; color: #f2f2f2; }
+    #hud .sub { margin: 0 0 10px; font-size: 11px; color: #777; letter-spacing: 0.3px; }
+    .grid { display: grid; grid-template-columns: 92px 1fr; gap: 3px 8px; font-size: 13px; align-items: center; }
+    .grid span { color: #777; font-size: 10px; letter-spacing: 0.8px; text-transform: uppercase; }
+    .grid b { color: #ffaa00; font-weight: 650; font-variant-numeric: tabular-nums; }
+    #order { display: flex; gap: 4px; flex-wrap: wrap; }
+    #order i {
+      font-style: normal; min-width: 18px; text-align: center; color: #9a9a9a;
+      border-radius: 4px; padding: 1px 0;
+    }
+    #order i.on { color: #1a1204; background: #ffaa00; }
+    #mini { margin-top: 10px; width: 148px; height: 148px; border-radius: 10px; background: #101010; border: 1px solid #2a2a2a; }
+    #diag { margin: 8px 0 0; font-size: 11px; color: #8d8; min-height: 14px; }
+    #diag.bad { color: #f66; }
+    details { pointer-events: auto; margin-top: 8px; font-size: 12px; color: #999; }
+    summary { cursor: pointer; color: #aaa; }
+    details p { margin: 6px 0 0; line-height: 1.45; }
+    #overlay {
+      position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%);
+      color: #bbb; background: rgba(20,20,20,0.92);
+      padding: 12px 16px; border-radius: 28px; border: 1px solid #333;
+      backdrop-filter: blur(10px); display: flex; gap: 16px; align-items: center;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5); max-width: calc(100vw - 24px); flex-wrap: wrap;
+      justify-content: center;
+    }
+    .stat { display: flex; flex-direction: column; min-width: 64px; }
+    .stat label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #666; }
+    .stat b { font-size: 18px; font-weight: 700; color: #ffaa00; font-variant-numeric: tabular-nums; }
     input[type=range] { accent-color: #ffaa00; width: 150px; cursor: pointer; }
-    #loading {
-      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-      color: #aaa; font-weight: lighter; letter-spacing: 2px;
+    button {
+      background: #1c1c1c; color: #eee; border: 1px solid #3a3a3a; border-radius: 999px;
+      padding: 8px 12px; cursor: pointer; font: inherit; font-size: 13px;
+    }
+    button:hover { border-color: #ffaa00; color: #ffaa00; }
+    @media (max-width: 720px) {
+      #mini { width: 120px; height: 120px; }
+      input[type=range] { width: 120px; }
     }
   </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 </head>
 <body>
-<div id="loading">KALIBRIERE STEUERZEITEN...</div>
-<div id="overlay">
-  <div class="stat"><label>Drehzahl</label><val id="rpmVal">300</val></div>
-  <input type="range" id="rpmSlider" min="0" max="4000" value="300" step="10">
-  <div class="stat"><label>System</label><val>DOHC Kette</val></div>
-</div>
-<script>
-// Der vollständige animierte Motorcode wurde hier eingefügt...
-// (Crossplane-Kurbelwelle, Ventile, Steuerkette, Feueranimation, Steuerzeiten)
+  <div id="hud">
+    <h1>V8 DOHC CROSSPLANE</h1>
+    <p class="sub">Vier Hubzapfen, zwei Ebenen, Kette 2:1</p>
+    <div class="grid">
+      <span>Zündfolge</span><b id="order"></b>
+      <span>Kurbel</span><b id="crankDeg">0°</b>
+      <span>Zündung</span><b id="firing">1</b>
+      <span>Takt Z1</span><b id="stroke">Arbeiten</b>
+      <span>Einlass Z1</span><b id="inLift">0 %</b>
+      <span>Auslass Z1</span><b id="exLift">0 %</b>
+    </div>
+    <canvas id="mini" width="148" height="148"></canvas>
+    <div id="diag">Kinematik wird geprüft …</div>
+    <details>
+      <summary>Modellannahmen</summary>
+      <p>
+        90°-V, Crossplane-Kurbelwelle, Zündfolge 1-8-4-3-6-5-7-2.
+        Ungerade Zylinder auf der linken Bank, gerade auf der rechten.
+        Begleiter im gemeinsamen OT: 1/6, 8/5, 4/7 und 3/2.
+        Nocken mit halber Kurbeldrehzahl. Auslass öffnet 50° vor UT und schließt 18° nach OT,
+        Einlass öffnet 18° vor OT und schließt 50° nach UT. Zündung fest 15° vor OT.
+        Pleuelverhältnis 5,7″ / 3,48″ = 1,64. Ventilhub ist zum Ablesen vergrößert.
+      </p>
+    </details>
+  </div>
+  <div id="overlay">
+    <div class="stat"><label>Drehzahl</label><b id="rpmVal">300</b></div>
+    <input type="range" id="rpmSlider" min="0" max="4000" value="300" step="10" aria-label="Drehzahl">
+    <div class="stat"><label>System</label><b>DOHC Kette</b></div>
+    <button type="button" id="stepBtn">Schritt 90°</button>
+    <button type="button" id="holdBtn">Halt</button>
+  </div>
+  <script>
+(function () {
+  "use strict";
 
-document.getElementById("loading").style.display = "none";
-</script>
+  const DEG = Math.PI / 180;
+  const IN = 0.27;
+  const R = (3.48 / 2) * IN;
+  const ROD = 5.70 * IN;
+  const BORE_R = 0.50;
+  const SPACING = 4.40 * IN;
+  const JOURNAL_Z = [-1.5 * SPACING, -0.5 * SPACING, 0.5 * SPACING, 1.5 * SPACING];
+  const ROD_Z = { L: -0.15, R: 0.15 };
+
+  // Steuerzeiten in Grad Kurbelwinkel, 0 = Zünd-OT des jeweiligen Zylinders.
+  // Liegen in den Lehrbereichen: EÖ 40–80° vor UT, ES 10–50° nach OT,
+  // Eö 10–50° vor OT, Es 40–80° nach UT.
+  const EX_OPEN = 130;
+  const EX_CLOSE = 378;
+  const IN_OPEN = 342;
+  const IN_CLOSE = 590;
+  const EX_PEAK = (EX_OPEN + EX_CLOSE) / 2;
+  const IN_PEAK = (IN_OPEN + IN_CLOSE) / 2;
+  const LIFT = 0.20;
+  const SPARK = 15;
+
+  const BETA = { L: 45 * DEG, R: -45 * DEG };
+  const PHASE = [
+    BETA.L,
+    BETA.L + 90 * DEG,
+    BETA.L - 90 * DEG,
+    BETA.L + 180 * DEG
+  ];
+
+  // GM-Zählung, Drehrichtung im Uhrzeigersinn von vorn.
+  // Die rechte Bank liegt in Drehrichtung 90° hinter der linken,
+  // deshalb kommt Zylinder 2 erst 270° nach Zylinder 1 in den OT.
+  const cylinders = [
+    { id: 1, bank: "L", journal: 0, fire: 0 },
+    { id: 2, bank: "R", journal: 0, fire: 630 },
+    { id: 3, bank: "L", journal: 1, fire: 270 },
+    { id: 4, bank: "R", journal: 1, fire: 180 },
+    { id: 5, bank: "L", journal: 2, fire: 450 },
+    { id: 6, bank: "R", journal: 2, fire: 360 },
+    { id: 7, bank: "L", journal: 3, fire: 540 },
+    { id: 8, bank: "R", journal: 3, fire: 90 }
+  ];
+  const ORDER = [1, 8, 4, 3, 6, 5, 7, 2];
+
+  function mod(a, n) {
+    return ((a % n) + n) % n;
+  }
+
+  function valveOpen(gamma, open, close) {
+    if (gamma < open || gamma > close) return 0;
+    const t = (gamma - open) / (close - open);
+    return 0.5 - 0.5 * Math.cos(2 * Math.PI * t);
+  }
+
+  function wristDistance(theta, cyl) {
+    const psi = theta + PHASE[cyl.journal];
+    const phi = psi - BETA[cyl.bank];
+    const s = Math.sin(phi);
+    const under = ROD * ROD - R * R * s * s;
+    return R * Math.cos(phi) + Math.sqrt(Math.max(0, under));
+  }
+
+  function gammaDeg(theta, cyl) {
+    return mod(theta / DEG - cyl.fire, 720);
+  }
+
+  function strokeName(gamma) {
+    if (gamma < 180) return "Arbeiten";
+    if (gamma < 360) return "Ausstoßen";
+    if (gamma < 540) return "Ansaugen";
+    return "Verdichten";
+  }
+
+  function flameAmount(gamma) {
+    let d = gamma;
+    if (d > 360) d -= 720;
+    if (d < -SPARK || d > 50) return 0;
+    const t = (d + SPARK) / (SPARK + 50);
+    return Math.sin(Math.PI * t);
+  }
+
+  function runSelfTest() {
+    const errors = [];
+    const tdc = R + ROD;
+    ORDER.forEach(function (id, i) {
+      const cyl = cylinders[id - 1];
+      const theta = i * 90 * DEG;
+      if (Math.abs(wristDistance(theta, cyl) - tdc) > 1e-6) errors.push("OT " + id);
+      const g = gammaDeg(theta, cyl);
+      if (g > 1e-6) errors.push("Zündwinkel " + id);
+    });
+    [[1, 6], [8, 5], [4, 7], [3, 2]].forEach(function (pair) {
+      const a = cylinders[pair[0] - 1];
+      const b = cylinders[pair[1] - 1];
+      if (Math.abs(wristDistance(a.fire * DEG, b) - tdc) > 1e-6) errors.push("Begleiter " + pair.join("/"));
+      if (Math.abs(mod(a.fire - b.fire, 720) - 360) > 1e-6) errors.push("Taktversatz " + pair.join("/"));
+    });
+    if (valveOpen(0, IN_OPEN, IN_CLOSE) !== 0 || valveOpen(0, EX_OPEN, EX_CLOSE) !== 0) {
+      errors.push("Ventile bei Zünd-OT offen");
+    }
+    if (valveOpen(360, IN_OPEN, IN_CLOSE) <= 0 || valveOpen(360, EX_OPEN, EX_CLOSE) <= 0) {
+      errors.push("keine Überschneidung");
+    }
+    function pinSep(i, j) {
+      let d = Math.abs(PHASE[i] - PHASE[j]) % (2 * Math.PI);
+      if (d > Math.PI) d = 2 * Math.PI - d;
+      return d;
+    }
+    if (Math.abs(pinSep(0, 3) - Math.PI) > 1e-6) errors.push("äußere Zapfen");
+    if (Math.abs(pinSep(1, 2) - Math.PI) > 1e-6) errors.push("innere Zapfen");
+    if (Math.abs(pinSep(0, 1) - Math.PI / 2) > 1e-6) errors.push("Ebenenwinkel");
+    // Linke Bank: Intervalle 270-180-90-180, eine Permutation von 180/90/180/270.
+    const leftFires = [0, 270, 450, 540];
+    const gaps = [];
+    for (let i = 0; i < 4; i++) gaps.push(mod(leftFires[(i + 1) % 4] - leftFires[i], 720));
+    gaps.sort(function (a, b) { return a - b; });
+    if (gaps.join() !== "90,180,180,270") errors.push("Bankintervalle");
+    return errors;
+  }
+
+  const diag = document.getElementById("diag");
+  const testErrors = runSelfTest();
+  diag.textContent = testErrors.length ? testErrors.join(", ") : "Kinematik geprüft: OT, Zündfolge, Begleiter, Ventilüberschneidung";
+  if (testErrors.length) diag.className = "bad";
+
+  const orderEl = document.getElementById("order");
+  ORDER.forEach(function (id) {
+    const chip = document.createElement("i");
+    chip.textContent = String(id);
+    chip.dataset.id = String(id);
+    orderEl.appendChild(chip);
+  });
+
+  const rpmSlider = document.getElementById("rpmSlider");
+  const rpmVal = document.getElementById("rpmVal");
+  let rpm = 300;
+  let theta = 0;
+
+  rpmSlider.addEventListener("input", function () {
+    rpm = Number(rpmSlider.value);
+    rpmVal.textContent = String(rpm);
+  });
+  document.getElementById("holdBtn").addEventListener("click", function () {
+    rpm = 0;
+    rpmSlider.value = "0";
+    rpmVal.textContent = "0";
+  });
+  document.getElementById("stepBtn").addEventListener("click", function () {
+    rpm = 0;
+    rpmSlider.value = "0";
+    rpmVal.textContent = "0";
+    theta += 90 * DEG;
+  });
+
+  const yAxis = new THREE.Vector3(0, 1, 0);
+  const tmp = new THREE.Vector3();
+  const tmp2 = new THREE.Vector3();
+
+  function boreBasis(beta) {
+    const u = new THREE.Vector3(Math.sin(beta), Math.cos(beta), 0);
+    let x = -Math.cos(beta);
+    let y = Math.sin(beta);
+    if (x * u.x < 0) {
+      x = -x;
+      y = -y;
+    }
+    return { u: u, out: new THREE.Vector3(x, y, 0) };
+  }
+
+  function alignY(object, dir) {
+    object.quaternion.setFromUnitVectors(yAxis, dir);
+  }
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x080808);
+  const camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.05, 80);
+  camera.position.set(6.4, 4.6, -8.2);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.domElement.className = "view";
+  if (THREE.sRGBEncoding) renderer.outputEncoding = THREE.sRGBEncoding;
+  document.body.appendChild(renderer.domElement);
+
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.target.set(0, 1.15, 0);
+  controls.enableDamping = true;
+  controls.maxDistance = 22;
+  controls.minDistance = 3;
+  controls.update();
+
+  scene.add(new THREE.HemisphereLight(0xd5dde6, 0x16120e, 0.7));
+  const key = new THREE.DirectionalLight(0xfff4e5, 1.15);
+  key.position.set(5, 9, -6);
+  scene.add(key);
+  const fill = new THREE.DirectionalLight(0x8ea2c4, 0.4);
+  fill.position.set(-7, 3, 5);
+  scene.add(fill);
+
+  const grid = new THREE.GridHelper(18, 18, 0x242424, 0x141414);
+  grid.position.y = -1.7;
+  scene.add(grid);
+
+  const steel = new THREE.MeshStandardMaterial({ color: 0xb7bcc4, metalness: 0.86, roughness: 0.28 });
+  const steelDark = new THREE.MeshStandardMaterial({ color: 0x6e747c, metalness: 0.8, roughness: 0.35 });
+  const rodMat = new THREE.MeshStandardMaterial({ color: 0x8d5a32, metalness: 0.4, roughness: 0.42 });
+  const headMat = new THREE.MeshStandardMaterial({ color: 0x2a3038, metalness: 0.72, roughness: 0.38 });
+  const linerMat = new THREE.MeshStandardMaterial({
+    color: 0x9eb0c2, metalness: 0.55, roughness: 0.22,
+    transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false
+  });
+  const chainMat = new THREE.MeshStandardMaterial({ color: 0x2a2d33, metalness: 0.7, roughness: 0.35 });
+  const camMat = new THREE.MeshStandardMaterial({ color: 0xb08d57, metalness: 0.75, roughness: 0.32 });
+
+  const crank = new THREE.Group();
+  scene.add(crank);
+
+  JOURNAL_Z.forEach(function (z, index) {
+    const phase = PHASE[index];
+    const dir = new THREE.Vector3(Math.sin(phase), Math.cos(phase), 0);
+    const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.58, 18), steel);
+    pin.rotation.x = Math.PI / 2;
+    pin.position.set(dir.x * R, dir.y * R, z);
+    crank.add(pin);
+
+    const web = new THREE.Mesh(new THREE.BoxGeometry(0.2, R * 1.25, 0.26), steelDark);
+    alignY(web, dir);
+    web.position.set(dir.x * R * 0.42, dir.y * R * 0.42, z);
+    crank.add(web);
+
+    const weight = new THREE.Mesh(new THREE.BoxGeometry(0.78, R * 0.9, 0.34), steelDark);
+    const opp = dir.clone().multiplyScalar(-1);
+    alignY(weight, opp);
+    weight.position.set(opp.x * R * 0.78, opp.y * R * 0.78, z);
+    crank.add(weight);
+  });
+
+  [-2.05, -SPACING, 0, SPACING, 2.05].forEach(function (z) {
+    const main = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.42, 18), steel);
+    main.rotation.x = Math.PI / 2;
+    main.position.set(0, 0, z);
+    crank.add(main);
+  });
+
+  const parts = [];
+  const banks = {
+    L: boreBasis(BETA.L),
+    R: boreBasis(BETA.R)
+  };
+
+  ["L", "R"].forEach(function (bank) {
+    const basis = banks[bank];
+    const radial = R + ROD + 1.02;
+    const sep = 0.39;
+    basis.cams = {
+      in: basis.u.clone().multiplyScalar(radial).add(basis.out.clone().multiplyScalar(-sep)),
+      ex: basis.u.clone().multiplyScalar(radial).add(basis.out.clone().multiplyScalar(sep))
+    };
+    basis.camGroups = {};
+    ["in", "ex"].forEach(function (which) {
+      const group = new THREE.Group();
+      group.position.copy(basis.cams[which]);
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, SPACING * 3 + 0.5, 14), camMat);
+      shaft.rotation.x = Math.PI / 2;
+      group.add(shaft);
+      scene.add(group);
+      const cap = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.16, SPACING * 3 + 0.35), headMat);
+      alignY(cap, basis.u);
+      cap.position.copy(basis.cams[which]).addScaledVector(basis.u, 0.18);
+      scene.add(cap);
+      basis.camGroups[which] = group;
+    });
+  });
+
+  cylinders.forEach(function (cyl) {
+    const basis = banks[cyl.bank];
+    const z = JOURNAL_Z[cyl.journal] + ROD_Z[cyl.bank];
+    const beta = BETA[cyl.bank];
+
+    const linerLen = 1.85;
+    const linerMid = (R + ROD) * 0.72;
+    const openStart = cyl.bank === "L" ? 0.6 : 2.5;
+    const liner = new THREE.Mesh(
+      new THREE.CylinderGeometry(BORE_R, BORE_R, linerLen, 28, 1, true, openStart, Math.PI * 1.45),
+      linerMat
+    );
+    alignY(liner, basis.u);
+    liner.position.copy(basis.u).multiplyScalar(linerMid).setZ(z);
+    scene.add(liner);
+
+    const deck = new THREE.Mesh(new THREE.TorusGeometry(BORE_R * 0.96, 0.03, 8, 22), steelDark);
+    deck.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), basis.u);
+    deck.position.copy(basis.u).multiplyScalar(R + ROD + 0.4).setZ(z);
+    scene.add(deck);
+
+    const pistonMat = new THREE.MeshStandardMaterial({ color: 0xd5d8de, metalness: 0.72, roughness: 0.3, emissive: 0x000000 });
+    const piston = new THREE.Mesh(new THREE.CylinderGeometry(BORE_R * 0.9, BORE_R * 0.9, 0.34, 20), pistonMat);
+    alignY(piston, basis.u);
+    scene.add(piston);
+
+    const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.07, 1, 10), rodMat);
+    scene.add(rod);
+
+    function makeValve(side) {
+      const group = new THREE.Group();
+      const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.46, 8), steel);
+      const headMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.045, 14), steel);
+      headMesh.position.y = -0.24;
+      group.add(stem);
+      group.add(headMesh);
+      alignY(group, basis.u);
+      scene.add(group);
+      return { group: group, side: side };
+    }
+
+    const valves = [makeValve(-1), makeValve(1)];
+    const flameMat = new THREE.MeshBasicMaterial({
+      color: 0xff7720, transparent: true, opacity: 0, depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+    const flame = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 10), flameMat);
+    scene.add(flame);
+    const glow = new THREE.PointLight(0xff6600, 0, 3.2);
+    scene.add(glow);
+
+    const label = makeLabel(String(cyl.id));
+    scene.add(label);
+
+    const peak = { in: IN_PEAK, ex: EX_PEAK };
+    ["in", "ex"].forEach(function (which, vi) {
+      const gammaPeak = peak[which];
+      const lambda = ((cyl.fire + gammaPeak) * DEG) / 2;
+      const psiLocal = beta + Math.PI - lambda;
+      const noseDir = new THREE.Vector3(Math.sin(psiLocal), Math.cos(psiLocal), 0);
+      const lobe = new THREE.Mesh(new THREE.BoxGeometry(0.22, LIFT, 0.16), camMat);
+      lobe.quaternion.setFromUnitVectors(yAxis, noseDir);
+      lobe.position.copy(noseDir).multiplyScalar(0.09 + LIFT / 2).setZ(z);
+      banks[cyl.bank].camGroups[which].add(lobe);
+      valves[vi].which = which;
+    });
+
+    parts.push({
+      cyl: cyl, basis: basis, z: z, piston: piston, pistonMat: pistonMat,
+      rod: rod, valves: valves, flame: flame, flameMat: flameMat, glow: glow, label: label
+    });
+  });
+
+  function makeLabel(text) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 128;
+    canvas.height = 64;
+    const g = canvas.getContext("2d");
+    g.fillStyle = "rgba(0,0,0,0.55)";
+    g.fillRect(8, 8, 112, 48);
+    g.fillStyle = "#ffaa00";
+    g.font = "bold 36px sans-serif";
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.fillText(text, 64, 34);
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
+    sprite.scale.set(0.48, 0.24, 1);
+    return sprite;
+  }
+
+  // Steuerkette: äußere Tangenten, Umlauf im Uhrzeigersinn, Übersetzung 2:1.
+  const chainZ = { L: -2.55, R: -2.22 };
+  const sprocketR = { crank: 0.16, cam: 0.32 };
+  const chains = [];
+
+  function externalPhis(a, b) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const dist = Math.hypot(dx, dy);
+    const base = Math.atan2(dy, dx);
+    const cosG = (a.r - b.r) / dist;
+    if (cosG < -1 || cosG > 1) return null;
+    const g = Math.acos(cosG);
+    return [base + g, base - g];
+  }
+
+  function tangentForClockwise(a, b) {
+    const phis = externalPhis(a, b);
+    if (!phis) return null;
+    let best = phis[0];
+    let bestDot = -Infinity;
+    phis.forEach(function (phi) {
+      const nx = Math.cos(phi);
+      const ny = Math.sin(phi);
+      const tx = (b.x - a.x) + (b.r - a.r) * nx;
+      const ty = (b.y - a.y) + (b.r - a.r) * ny;
+      const dot = tx * ny + ty * (-nx);
+      if (dot > bestDot) {
+        bestDot = dot;
+        best = phi;
+      }
+    });
+    return best;
+  }
+
+  function buildChain(bankName) {
+    const basis = banks[bankName];
+    const circles = [
+      { x: 0, y: 0, r: sprocketR.crank, kind: "crank" },
+      { x: basis.cams.in.x, y: basis.cams.in.y, r: sprocketR.cam, kind: "in" },
+      { x: basis.cams.ex.x, y: basis.cams.ex.y, r: sprocketR.cam, kind: "ex" }
+    ];
+    const c = circles.reduce(function (acc, s) {
+      return { x: acc.x + s.x / 3, y: acc.y + s.y / 3 };
+    }, { x: 0, y: 0 });
+    circles.sort(function (a, b) {
+      return Math.atan2(b.y - c.y, b.x - c.x) - Math.atan2(a.y - c.y, a.x - c.x);
+    });
+    const depart = circles.map(function (s, i) {
+      return tangentForClockwise(s, circles[(i + 1) % circles.length]);
+    });
+    if (depart.some(function (v) { return v === null; })) return null;
+
+    const raw = [];
+    circles.forEach(function (s, i) {
+      const arrive = depart[(i + circles.length - 1) % circles.length];
+      const leave = depart[i];
+      let sweep = leave - arrive;
+      sweep = sweep % (Math.PI * 2);
+      if (sweep > 0) sweep -= Math.PI * 2;
+      if (sweep === 0) sweep = -Math.PI * 2;
+      if (sweep > -0.15 || sweep < -5.6) {
+        raw.badSweep = sweep;
+      }
+      const steps = Math.max(3, Math.ceil(Math.abs(sweep) / 0.12));
+      for (let k = 0; k < steps; k++) {
+        const a = arrive + sweep * (k / steps);
+        raw.push({ x: s.x + s.r * Math.cos(a), y: s.y + s.r * Math.sin(a) });
+      }
+      const n = circles[(i + 1) % circles.length];
+      const nx = Math.cos(leave);
+      const ny = Math.sin(leave);
+      const x1 = s.x + s.r * nx;
+      const y1 = s.y + s.r * ny;
+      const x2 = n.x + n.r * nx;
+      const y2 = n.y + n.r * ny;
+      const len = Math.hypot(x2 - x1, y2 - y1);
+      const tSteps = Math.max(1, Math.ceil(len / 0.1));
+      for (let k = 1; k < tSteps; k++) {
+        const t = k / tSteps;
+        raw.push({ x: x1 + (x2 - x1) * t, y: y1 + (y2 - y1) * t });
+      }
+    });
+    raw.push({ x: raw[0].x, y: raw[0].y });
+
+    const cum = [0];
+    for (let i = 1; i < raw.length; i++) {
+      cum.push(cum[i - 1] + Math.hypot(raw[i].x - raw[i - 1].x, raw[i].y - raw[i - 1].y));
+    }
+    const total = cum[cum.length - 1];
+    const pitch = (2 * Math.PI * sprocketR.crank) / 14;
+    const count = Math.max(8, Math.round(total / pitch));
+    const z = chainZ[bankName];
+    const links = [];
+    for (let i = 0; i < count; i++) {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(pitch * 0.78, 0.045, 0.1), chainMat);
+      scene.add(mesh);
+      links.push(mesh);
+    }
+
+    function addSprocket(x, y, radius, teeth) {
+      const g = new THREE.Group();
+      g.position.set(x, y, z);
+      const disc = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.78, radius * 0.78, 0.08, 28), radius === sprocketR.crank ? steel : camMat);
+      disc.rotation.x = Math.PI / 2;
+      g.add(disc);
+      for (let i = 0; i < teeth; i++) {
+        const a = (i / teeth) * Math.PI * 2;
+        const tooth = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.07, 0.07), steelDark);
+        tooth.position.set(Math.cos(a) * radius, Math.sin(a) * radius, 0);
+        tooth.rotation.z = a;
+        g.add(tooth);
+      }
+      scene.add(g);
+      return g;
+    }
+
+    const sprockets = circles.map(function (s) {
+      const teeth = s.kind === "crank" ? 14 : 28;
+      const mesh = addSprocket(s.x, s.y, s.r, teeth);
+      mesh.userData.ratio = s.kind === "crank" ? 1 : 0.5;
+      return mesh;
+    });
+
+    return { pts: raw, cum: cum, total: total, links: links, pitch: pitch, count: count, z: z, sprockets: sprockets, badSweep: raw.badSweep };
+  }
+
+  ["L", "R"].forEach(function (bankName) {
+    const chain = buildChain(bankName);
+    if (chain) chains.push(chain);
+  });
+  if (chains.some(function (c) { return c.badSweep !== undefined || !isFinite(c.total) || c.total < 1; })) {
+    diag.textContent = "Kinematik in Ordnung, Kettenbahn prüfen";
+    diag.className = "bad";
+  }
+
+  function pointOnChain(chain, s) {
+    s = mod(s, chain.total);
+    const cum = chain.cum;
+    const pts = chain.pts;
+    let lo = 0;
+    let hi = cum.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (cum[mid] < s) lo = mid + 1;
+      else hi = mid;
+    }
+    const i1 = Math.max(1, lo);
+    const i0 = i1 - 1;
+    const seg = cum[i1] - cum[i0];
+    const t = seg < 1e-8 ? 0 : (s - cum[i0]) / seg;
+    const a = pts[i0];
+    const b = pts[i1];
+    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, tx: b.x - a.x, ty: b.y - a.y };
+  }
+
+  const mini = document.getElementById("mini");
+  const mg = mini.getContext("2d");
+  const crankDegEl = document.getElementById("crankDeg");
+  const firingEl = document.getElementById("firing");
+  const strokeEl = document.getElementById("stroke");
+  const inLiftEl = document.getElementById("inLift");
+  const exLiftEl = document.getElementById("exLift");
+
+  let chainTravel = 0;
+  let last = performance.now();
+
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    theta += rpm * (Math.PI * 2) * dt / 60;
+    chainTravel += rpm * (Math.PI * 2) * dt / 60 * sprocketR.crank;
+
+    crank.rotation.z = -theta;
+    ["L", "R"].forEach(function (bankName) {
+      const groups = banks[bankName].camGroups;
+      groups.in.rotation.z = -theta / 2;
+      groups.ex.rotation.z = -theta / 2;
+    });
+
+    let active = cylinders[0];
+    let activeGamma = 720;
+    const tdc = R + ROD;
+
+    parts.forEach(function (part) {
+      const cyl = part.cyl;
+      const g = gammaDeg(theta, cyl);
+      if (g < activeGamma) {
+        activeGamma = g;
+        active = cyl;
+      }
+      const d = wristDistance(theta, cyl);
+      const u = part.basis.u;
+      const pinPsi = theta + PHASE[cyl.journal];
+      const pinX = Math.sin(pinPsi) * R;
+      const pinY = Math.cos(pinPsi) * R;
+      const pinZ = JOURNAL_Z[cyl.journal] + ROD_Z[cyl.bank];
+      const wristD = d;
+      const crown = wristD + 0.16;
+
+      part.piston.position.set(u.x * crown, u.y * crown, part.z);
+      const burn = flameAmount(g);
+      part.pistonMat.emissive.setRGB(0.85 * burn, 0.28 * burn, 0.02 * burn);
+
+      tmp.set(pinX, pinY, pinZ);
+      tmp2.set(u.x * wristD, u.y * wristD, part.z);
+      const dx = tmp2.x - tmp.x;
+      const dy = tmp2.y - tmp.y;
+      const dz = tmp2.z - tmp.z;
+      const len = Math.hypot(dx, dy, dz) || 1;
+      part.rod.scale.y = len;
+      part.rod.position.set((tmp.x + tmp2.x) / 2, (tmp.y + tmp2.y) / 2, (tmp.z + tmp2.z) / 2);
+      tmp2.set(dx / len, dy / len, dz / len);
+      part.rod.quaternion.setFromUnitVectors(yAxis, tmp2);
+
+      part.valves.forEach(function (valve) {
+        const open = valve.which === "in" ? valveOpen(g, IN_OPEN, IN_CLOSE) : valveOpen(g, EX_OPEN, EX_CLOSE);
+        const cam = part.basis.cams[valve.which];
+        const base = cam.clone().addScaledVector(u, -(0.09 + 0.23 + open * LIFT));
+        valve.group.position.set(base.x, base.y, part.z);
+      });
+
+      const chamber = tdc + 0.5;
+      part.flame.position.set(u.x * chamber, u.y * chamber, part.z);
+      part.flame.scale.setScalar(0.4 + burn * 1.5);
+      part.flameMat.opacity = burn * 0.95;
+      part.glow.position.copy(part.flame.position);
+      part.glow.intensity = burn * 1.6;
+
+      part.label.position.set(u.x * (tdc + 1.15), u.y * (tdc + 1.15), part.z);
+    });
+
+    chains.forEach(function (chain) {
+      chain.sprockets.forEach(function (sprocket) {
+        sprocket.rotation.z = -theta * sprocket.userData.ratio;
+      });
+      for (let i = 0; i < chain.count; i++) {
+        const p = pointOnChain(chain, chainTravel + i * (chain.total / chain.count));
+        const link = chain.links[i];
+        link.position.set(p.x, p.y, chain.z);
+        link.rotation.z = Math.atan2(p.ty, p.tx);
+      }
+    });
+
+    const shown = mod(theta / DEG, 720);
+    crankDegEl.textContent = shown.toFixed(0) + "°";
+    firingEl.textContent = active.id + " · " + (active.bank === "L" ? "links" : "rechts");
+    const g1 = gammaDeg(theta, cylinders[0]);
+    strokeEl.textContent = strokeName(g1);
+    inLiftEl.textContent = Math.round(valveOpen(g1, IN_OPEN, IN_CLOSE) * 100) + " %";
+    exLiftEl.textContent = Math.round(valveOpen(g1, EX_OPEN, EX_CLOSE) * 100) + " %";
+    Array.prototype.forEach.call(orderEl.children, function (chip) {
+      chip.className = chip.dataset.id === String(active.id) ? "on" : "";
+    });
+    drawMini(theta, active.id);
+
+    controls.update();
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  }
+
+  function drawMini(thetaRad, activeId) {
+    const w = mini.width;
+    const h = mini.height;
+    const cx = w / 2;
+    const cy = h / 2 + 4;
+    const rad = 52;
+    mg.clearRect(0, 0, w, h);
+    mg.strokeStyle = "#333";
+    mg.lineWidth = 1;
+    mg.beginPath();
+    mg.arc(cx, cy, rad, 0, Math.PI * 2);
+    mg.stroke();
+    // Bankachsen
+    [45, -45].forEach(function (deg) {
+      const psi = deg * DEG;
+      mg.strokeStyle = "rgba(255,170,0,0.25)";
+      mg.beginPath();
+      mg.moveTo(cx, cy);
+      mg.lineTo(cx + Math.sin(psi) * rad, cy - Math.cos(psi) * rad);
+      mg.stroke();
+    });
+    PHASE.forEach(function (phase, index) {
+      const psi = thetaRad + phase;
+      const x = cx + Math.sin(psi) * (rad - 8);
+      const y = cy - Math.cos(psi) * (rad - 8);
+      const onPin = cylinders.filter(function (c) { return c.journal === index; });
+      const hot = onPin.some(function (c) { return c.id === activeId; });
+      mg.strokeStyle = "#667";
+      mg.beginPath();
+      mg.moveTo(cx, cy);
+      mg.lineTo(x, y);
+      mg.stroke();
+      mg.fillStyle = hot ? "#ffaa00" : "#d0d4dc";
+      mg.beginPath();
+      mg.arc(x, y, hot ? 7 : 5, 0, Math.PI * 2);
+      mg.fill();
+      mg.fillStyle = hot ? "#1a1204" : "#111";
+      mg.font = "10px sans-serif";
+      mg.textAlign = "center";
+      mg.textBaseline = "middle";
+      mg.fillText(String(index + 1), x, y);
+    });
+    mg.fillStyle = "#888";
+    mg.font = "10px sans-serif";
+    mg.textAlign = "center";
+    mg.fillText("vorn · Uhrzeigersinn", cx, h - 8);
+  }
+
+  window.addEventListener("resize", function () {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  requestAnimationFrame(frame);
+})();
+  </script>
 </body>
 </html>
