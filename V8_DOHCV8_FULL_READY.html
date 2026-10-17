@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>V8 DOHC Crossplane</title>
   <style>
-    html, body { margin: 0; height: 100%; background: #080808; color: #ddd; font-family: "Segoe UI", system-ui, sans-serif; }
-    canvas.view { display: block; width: 100%; height: 100%; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #080808; color: #ddd; font-family: "Segoe UI", system-ui, sans-serif; }
+    canvas.view { display: block; width: 100%; height: 100%; touch-action: none; }
     #hud {
       position: absolute; top: 16px; left: 16px; width: min(360px, calc(100vw - 32px));
       color: #c8c8c8; background: rgba(16,16,16,0.88);
@@ -49,7 +49,10 @@
     }
     button:hover { border-color: #ffaa00; color: #ffaa00; }
     @media (max-width: 720px) {
-      #mini { width: 120px; height: 120px; }
+      #hud { left: 8px; top: 8px; padding: 10px 12px 8px; }
+      #mini, #hud details { display: none; }
+      #diag { margin-top: 6px; }
+      #overlay { bottom: 10px; gap: 10px; padding: 10px 12px; }
       input[type=range] { width: 120px; }
     }
   </style>
